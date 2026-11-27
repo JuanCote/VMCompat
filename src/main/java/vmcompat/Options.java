@@ -16,6 +16,8 @@ public final class Options {
     private static boolean farFlag(String key){String v=value(key,key.equals("farMaskCache")?"true":"false");if(!v.equals("true")&&!v.equals("false"))throw new IllegalArgumentException(key+" requires true/false");return Boolean.parseBoolean(v);}
     public static final boolean FAR_MASK=farFlag("farMaskCache"),FAR_BATCH=farFlag("farShellBatch");
     public static final boolean FRAME_BREAKDOWN=Boolean.parseBoolean(value("frameBreakdown","false"));
+    /** Start the detailed recording window at the first Viewpoint frame instead of process start, so a long load (hosted or multiplayer) does not use it up. */
+    public static final boolean RECORD_FROM_VIEWPOINT=Boolean.parseBoolean(value("recordFromViewpoint","false"));
     public static final int PICK_EVERY=pickEvery();
     private static int pickEvery(){String v=value("pickEvery","3");if(!v.equals("1")&&!v.equals("3"))throw new IllegalArgumentException("pickEvery requires 1 or 3");return Integer.parseInt(v);}
     public static final String OPAQUE=value("opaqueBackend","opengl"),PICKING=value("pickingPath","depthStaging");

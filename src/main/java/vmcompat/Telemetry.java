@@ -45,12 +45,15 @@ public final class Telemetry {
         if(primary)frame(end,System.currentTimeMillis(),end-started);
         Breakdown.boundary(window,end,cpuEnd,primary?displayId():-1,primary);Breakdown.close(overhead);
     }
+    /** When the detailed recording window opened; 0 while it waits for the first Viewpoint frame. */
+    static volatile long armedAt;
     /** Public to exercise the same recorder using deterministic intervals in tests. */
     public static void frame(long now,long epoch,long swapNs){
         if(OFF)return;
         State s=STATES.get();long dt,id;
         synchronized(LOCK){dt=lastNano==0?0:Math.max(0,now-lastNano);lastNano=now;frameAt=now;if(dt>0)INTERVALS[(int)(count++%INTERVALS.length)]=dt;id=count;}
-        if(FULL&&!ReleaseLogs.capped&&dt>0&&!QUEUE.offer(new Row(id,epoch,dt,swapNs,s.passes,s.draws,s.meshDraws,s.readNs,s.readBytes,s.reads,s.rangeNs,s.rangeBytes,s.rangeCopies,s.indirectRows,s.issued,Counters.take(),s.snapshotId,s.snapshotCount)))dropped++;
+        if(FULL&&armedAt==0&&(!Options.RECORD_FROM_VIEWPOINT||s.passes!=null))armedAt=now;
+        if(FULL&&armedAt!=0&&!ReleaseLogs.capped&&dt>0&&!QUEUE.offer(new Row(id,epoch,dt,swapNs,s.passes,s.draws,s.meshDraws,s.readNs,s.readBytes,s.reads,s.rangeNs,s.rangeBytes,s.rangeCopies,s.indirectRows,s.issued,Counters.take(),s.snapshotId,s.snapshotCount)))dropped++;
         s.snapshotCount=0;s.passes=null;s.draws=s.meshDraws=0;s.readNs=s.readBytes=s.reads=s.rangeNs=s.rangeBytes=s.rangeCopies=s.indirectRows=s.issued=0;
     }
     public static Stats snapshot(long now){

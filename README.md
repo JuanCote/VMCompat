@@ -43,6 +43,12 @@ It writes `build/VMCompatStorm-unsigned.zip`. Unpack it into `~/Zomboid/mods`, w
 
 The Storm entry point is `WorkshopBootstrap.startStorm()`, called from `src/storm/java/vmcompat/storm/StormMod.java` while Storm registers its mods. It takes the `Instrumentation` from Storm's bootstrap class, skips the `mods/default.txt` and ZombieBuddy checks, limits transformation to the classes Storm's game class loader defines, and does nothing in a Storm server process. Everything after that is the shared activation path. Not ported yet: the Lua status dialog, the performance HUD and the settings keys.
 
+### Measuring and tuning under Storm
+
+A hosted or multiplayer session can take longer than two minutes to load, which uses up the detailed recording window before the first Viewpoint frame. Add `recordFromViewpoint=true` to `~/Zomboid/vmcompat.properties` to open that window at the first Viewpoint frame instead. The default is unchanged.
+
+One data point, a single player on an M2 Max (64 GB, macOS 26, Project Zomboid 42.22.2) hosting a server with about 170 mods and Viewpoint's model packs: the `somber` shader pack at its `Quality` preset ran at about 13 FPS, with the sun shadow pass taking 13 to 42 ms of each frame. The same pack at `Performance` ran at about 45 FPS. These are short samples taken at different places, so read them as an order of magnitude. On a heavily modded server the shader pack preset is the first thing to lower.
+
 ## License
 
 VMCompat code and original assets are available under the [MIT License](LICENSE). Project Zomboid, Project Viewpoint, ZombieBuddy, and their respective assets and libraries are separate dependencies with their own licenses.
