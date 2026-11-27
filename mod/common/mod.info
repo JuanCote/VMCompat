@@ -1,0 +1,11 @@
+name=VMCompat
+id=VMCompat
+description=OpenGL compatibility fixes and performance optimizations for Project Viewpoint on Apple Silicon Macs. Requires Viewpoint and ZombieBuddy. Restart after Java-code approval.
+modversion=1.0.20
+poster=poster.png
+require=\ZombieBuddy,\Viewpoint
+ZBVersionMin=2.3.4
+ZBVersionMax=2.3.4
+javaJarFile=media/java/client/VMCompat.jar
+javaPkgName=vmcompat
+javaPreload=true

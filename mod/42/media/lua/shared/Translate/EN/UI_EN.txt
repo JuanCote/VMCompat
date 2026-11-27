@@ -1,0 +1,6 @@
+UI_EN = {
+    UI_VMCompat_Restart = "Restart the game to enable VMCompat.",
+    UI_VMCompat_StartupError = "VMCompat could not start. See the log.",
+    UI_VMCompat_DiagnosticsOff = "Diagnostics will be disabled after restart.",
+    UI_VMCompat_DiagnosticsOn = "Diagnostics will be enabled after restart.",
+}

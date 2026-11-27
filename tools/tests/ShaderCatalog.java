@@ -1,0 +1,6 @@
+package vmcompat;
+import java.lang.classfile.*;import java.lang.classfile.instruction.*;import java.util.*;import java.util.jar.*;
+public final class ShaderCatalog {
+ public static List<List<String>> pairs(String jar)throws Exception{var found=new LinkedHashSet<List<String>>();try(var z=new JarFile(jar)){for(var e:Collections.list(z.entries()))if(e.getName().startsWith("viewpoint/render/")&&e.getName().endsWith(".class")){var model=ClassFile.of().parse(z.getInputStream(e).readAllBytes());for(var m:model.methods())if(m.code().isPresent()){List<Instruction> ops=m.code().get().elementStream().filter(x->x instanceof Instruction).map(x->(Instruction)x).toList();for(int j=3;j<ops.size();j++)if(ops.get(j) instanceof InvokeInstruction call&&call.owner().asInternalName().equals("viewpoint/platform/GlProgram")&&call.name().equalsString("create")&&call.type().stringValue().equals("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lviewpoint/platform/GlProgram;")){List<String> triple=new ArrayList<>();for(int k=j-3;k<j;k++)if(ops.get(k) instanceof ConstantInstruction c&&c.constantValue() instanceof String text)triple.add(text);if(triple.size()==3)found.add(triple);}}}}return List.copyOf(found);}
+ public static void main(String[]args)throws Exception{for(var row:pairs(args[0]))System.out.println(row);}
+}

@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Implementation-Title: VMCompat
+Implementation-Version: 1.0.20-local.2
+ZB-Preload: true
+

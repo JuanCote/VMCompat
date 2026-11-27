@@ -1,0 +1,6 @@
+UI_RU = {
+    UI_VMCompat_Restart = "Перезапустите игру, чтобы включить VMCompat.",
+    UI_VMCompat_StartupError = "VMCompat не запустился. Подробности в журнале.",
+    UI_VMCompat_DiagnosticsOff = "Диагностика выключится после перезапуска.",
+    UI_VMCompat_DiagnosticsOn = "Диагностика включится после перезапуска.",
+}

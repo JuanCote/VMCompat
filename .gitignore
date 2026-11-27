@@ -1,0 +1,10 @@
+/build/
+__pycache__/
+.DS_Store
+*.class
+*.jar
+*.jar.zbs
+*.log
+*.pk8
+*.pem
+.env

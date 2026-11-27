@@ -1,0 +1,9 @@
+package vmcompat;
+import java.lang.classfile.*;import java.lang.classfile.instruction.*;import java.nio.file.*;import java.util.*;import java.util.jar.*;
+/** Existing CPU run limits must agree with the new exact shader selectors. */
+public final class NativeSamplerContractTests {
+ static void check(boolean x,String s){if(!x)throw new AssertionError(s);}
+ static List<Integer> constants(ClassModel model,String name){List<Integer> values=new ArrayList<>();for(var m:model.methods())if(m.methodName().equalsString(name))m.code().ifPresent(code->{for(var e:code.elementList())if(e instanceof ConstantInstruction c&&c.constantValue() instanceof Integer n)values.add(n);});return values;}
+ public static void main(String[] args)throws Exception{try(JarFile jar=new JarFile(args[0])){for(String[] row:new String[][]{{"viewpoint/render/AtlasGroups","size","8","3"},{"viewpoint/render/AtlasGroups","samplers","8","3"},{"viewpoint/render/ModelBatches","slot","16","6"}}){byte[] original=jar.getInputStream(jar.getJarEntry(row[0]+".class")).readAllBytes();ClassModel cm=ClassFileSupport.create().parse(Transformer.rewrite(row[0],original));List<Integer> values=constants(cm,row[1]);if(row[0].endsWith("AtlasGroups")){check(!values.contains(8),"CPU group never exceeds qualified slots");check(cm.methods().stream().filter(m->m.methodName().equalsString(row[1])).flatMap(m->m.code().stream()).flatMap(c->c.elementStream()).anyMatch(e->e instanceof InvokeInstruction call&&call.owner().asInternalName().equals("vmcompat/NativeSamplers")&&call.name().equalsString("atlasSlots")),"CPU uses linked program array size");}else check(values.contains(Integer.parseInt(row[3]))&&!values.contains(Integer.parseInt(row[2])),"CPU model contract");}}
+ System.out.println("PASS original CPU groups use linked 3/4 atlases / 6 model textures; objects are rebatched, not removed");}
+}

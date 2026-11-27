@@ -1,0 +1,33 @@
+package vmcompat;
+import java.nio.*;import org.lwjgl.*;import org.lwjgl.opengl.*;
+/** Exact texelFetch of depth into R32F, with full physical state restoration. */
+final class DepthStaging {
+    private static final StateStore<Stage> STATES=new StateStore<>(Stage::new);
+    private static final class Stage {
+        int program,vao,texture,fbo,sampler,point,level;long packed;boolean disabled;
+        void initialize(){if(program!=0)return;
+            int v=Shaders.compileRaw(GL20.GL_VERTEX_SHADER,"#version 410 core\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2-1,0,1);}"),f=Shaders.compileRaw(GL20.GL_FRAGMENT_SHADER,"#version 410 core\nuniform sampler2D source;uniform ivec2 point;uniform int level;layout(location=0)out float result;void main(){result=texelFetch(source,point,level).r;}");
+            program=GL20.glCreateProgram();GL20.glAttachShader(program,v);GL20.glAttachShader(program,f);GL20.glLinkProgram(program);GL20.glDeleteShader(v);GL20.glDeleteShader(f);if(GL20.glGetProgrami(program,GL20.GL_LINK_STATUS)==0)throw new IllegalStateException(GL20.glGetProgramInfoLog(program));
+            GL20.glUseProgram(program);GL20.glUniform1i(GL20.glGetUniformLocation(program,"source"),0);point=GL20.glGetUniformLocation(program,"point");level=GL20.glGetUniformLocation(program,"level");vao=GL30.glGenVertexArrays();texture=GL11.glGenTextures();GL11.glBindTexture(GL11.GL_TEXTURE_2D,texture);int unpack=GL11.glGetInteger(GL21.GL_PIXEL_UNPACK_BUFFER_BINDING);GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER,0);try{GL11.glTexImage2D(GL11.GL_TEXTURE_2D,0,GL30.GL_R32F,1,1,0,GL11.GL_RED,GL11.GL_FLOAT,(ByteBuffer)null);}finally{GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER,unpack);}GL11.glTexParameteri(GL11.GL_TEXTURE_2D,GL11.GL_TEXTURE_MIN_FILTER,GL11.GL_NEAREST);GL11.glTexParameteri(GL11.GL_TEXTURE_2D,GL11.GL_TEXTURE_MAG_FILTER,GL11.GL_NEAREST);
+            sampler=GL33.glGenSamplers();GL33.glSamplerParameteri(sampler,GL11.GL_TEXTURE_MIN_FILTER,GL11.GL_NEAREST);GL33.glSamplerParameteri(sampler,GL11.GL_TEXTURE_MAG_FILTER,GL11.GL_NEAREST);GL33.glSamplerParameteri(sampler,GL14.GL_TEXTURE_COMPARE_MODE,GL11.GL_NONE);fbo=GL30.glGenFramebuffers();GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER,fbo);GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER,GL30.GL_COLOR_ATTACHMENT0,GL11.GL_TEXTURE_2D,texture,0);GL11.glDrawBuffer(GL30.GL_COLOR_ATTACHMENT0);GL11.glReadBuffer(GL30.GL_COLOR_ATTACHMENT0);if(GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER)!=GL30.GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Picking R32F target incomplete");
+        }
+    }
+    private static final class Guard implements AutoCloseable {
+        final int read=GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING),draw=GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING),program=GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM),vao=GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING),active=GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);final int texture,sampler;final int[] viewport=new int[4],polygon=new int[2];final ByteBuffer mask=BufferUtils.createByteBuffer(4);final boolean blend=GL30.glIsEnabledi(GL11.GL_BLEND,0);final int[] caps={GL11.GL_DEPTH_TEST,GL11.GL_STENCIL_TEST,GL11.GL_SCISSOR_TEST,GL11.GL_CULL_FACE,GL30.GL_RASTERIZER_DISCARD,GL30.GL_FRAMEBUFFER_SRGB,GL13.GL_SAMPLE_ALPHA_TO_COVERAGE,GL13.GL_SAMPLE_COVERAGE};final boolean[] enabled=new boolean[caps.length];
+        Guard(){long at=Counters.now();GL11.glGetIntegerv(GL11.GL_VIEWPORT,viewport);GL11.glGetIntegerv(GL11.GL_POLYGON_MODE,polygon);GL30.glGetBooleani_v(GL11.GL_COLOR_WRITEMASK,0,mask);for(int i=0;i<caps.length;i++)enabled[i]=GL11.glIsEnabled(caps[i]);GL13.glActiveTexture(GL13.GL_TEXTURE0);texture=GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);sampler=GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);Counters.elapsed(Counters.Key.PICK_STAGE_PREPARE_NS,at);}
+        public void close(){long at=Counters.now();GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER,read);GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER,draw);GL20.glUseProgram(program);GL30.glBindVertexArray(vao);GL11.glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);GL11.glPolygonMode(GL11.GL_FRONT_AND_BACK,polygon[0]);GL30.glColorMaski(0,mask.get(0)!=0,mask.get(1)!=0,mask.get(2)!=0,mask.get(3)!=0);if(blend)GL30.glEnablei(GL11.GL_BLEND,0);else GL30.glDisablei(GL11.GL_BLEND,0);for(int i=0;i<caps.length;i++)if(enabled[i])GL11.glEnable(caps[i]);else GL11.glDisable(caps[i]);GL13.glActiveTexture(GL13.GL_TEXTURE0);GL11.glBindTexture(GL11.GL_TEXTURE_2D,texture);GL33.glBindSampler(0,sampler);GL13.glActiveTexture(active);Counters.elapsed(Counters.Key.PICK_STAGE_RESTORE_NS,at);}
+    }
+    private static boolean packed(Stage s,int x,int y,long offset){
+        int fbo=GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);if(fbo==0)return false;
+        int kind=GL30.glGetFramebufferAttachmentParameteri(GL30.GL_READ_FRAMEBUFFER,GL30.GL_DEPTH_ATTACHMENT,GL30.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);if(kind!=GL11.GL_TEXTURE)return false;
+        int texture=GL30.glGetFramebufferAttachmentParameteri(GL30.GL_READ_FRAMEBUFFER,GL30.GL_DEPTH_ATTACHMENT,GL30.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME),level=GL30.glGetFramebufferAttachmentParameteri(GL30.GL_READ_FRAMEBUFFER,GL30.GL_DEPTH_ATTACHMENT,GL30.GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL);
+        try{if(Textures.target(texture)!=GL11.GL_TEXTURE_2D)return false;}catch(IllegalStateException unknown){return false;}
+        for(int i=0;i<8;i++)if(GL11.glIsEnabled(GL30.GL_CLIP_DISTANCE0+i))return false;
+        try(Guard guard=new Guard()){
+            s.initialize();for(int cap:guard.caps)GL11.glDisable(cap);GL30.glDisablei(GL11.GL_BLEND,0);GL30.glColorMaski(0,true,true,true,true);GL11.glPolygonMode(GL11.GL_FRONT_AND_BACK,GL11.GL_FILL);GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER,s.fbo);GL11.glViewport(0,0,1,1);GL20.glUseProgram(s.program);GL30.glBindVertexArray(s.vao);GL13.glActiveTexture(GL13.GL_TEXTURE0);GL11.glBindTexture(GL11.GL_TEXTURE_2D,texture);GL33.glBindSampler(0,s.sampler);GL20.glUniform2i(s.point,x,y);GL20.glUniform1i(s.level,level);long at=Counters.now();GL11.glDrawArrays(GL11.GL_TRIANGLES,0,3);Counters.elapsed(Counters.Key.PICK_STAGE_DRAW_NS,at);Picking.nativeRead(0,0,1,1,GL11.GL_RED,GL11.GL_FLOAT,offset);s.packed++;return true;
+        }
+    }
+
+    static void closeCurrent(){Stage s=STATES.get();if(s.program!=0){GL20.glDeleteProgram(s.program);GL30.glDeleteVertexArrays(s.vao);GL11.glDeleteTextures(s.texture);GL30.glDeleteFramebuffers(s.fbo);GL33.glDeleteSamplers(s.sampler);s.program=0;}}
+    static boolean read(int x,int y,long offset){return packed(STATES.get(),x,y,offset);}
+}

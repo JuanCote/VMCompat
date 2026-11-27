@@ -1,0 +1,25 @@
+local function checkBox(box)
+    assert(box.width <= TEST_WIDTH and box.height <= TEST_HEIGHT, "dialog fits screen")
+    assert(box.x == math.floor((TEST_WIDTH-box.width)/2), "final width centered")
+    assert(box.y == math.floor((TEST_HEIGHT-box.height)/2), "final height centered")
+    assert(box.x >= 0 and box.y >= 0, "nonnegative bounds")
+    assert(not box.text:find("LONG_TECHNICAL_REASON",1,true), "technical details excluded")
+    assert(#box.text < 160, "short localized message")
+end
+TEST_CALLBACKS.menu()
+TEST_CALLBACKS.menu()
+local startupCount=TEST_STATE=="ACTIVE" and 0 or 1
+assert(#TEST_DIALOGS==startupCount, "active silent / show once")
+if startupCount>0 then
+    local box=TEST_DIALOGS[1];checkBox(box)
+    local expected=(TEST_STATE=="FAILED" or TEST_STATE=="INCOMPATIBLE") and getText("UI_VMCompat_StartupError") or getText("UI_VMCompat_Restart")
+    assert(box.text:gsub("\n"," ")==expected, "correct brief reason")
+    assert(#TEST_LOGS>0 and TEST_LOGS[1]:find("LONG_TECHNICAL_REASON",1,true), "details retained in log")
+end
+TEST_CALLBACKS.key(0);assert(#TEST_DIALOGS==startupCount, "unrelated key unchanged")
+TEST_CALLBACKS.key(Keyboard.KEY_F9)
+checkBox(TEST_DIALOGS[#TEST_DIALOGS])
+assert(TEST_DIAGNOSTICS:find("telemetry=full",1,true), "diagnostics opt-in unchanged")
+TEST_CALLBACKS.key(Keyboard.KEY_F9)
+checkBox(TEST_DIALOGS[#TEST_DIALOGS])
+assert(TEST_DIAGNOSTICS:find("telemetry=hud",1,true), "diagnostics opt-out unchanged")
