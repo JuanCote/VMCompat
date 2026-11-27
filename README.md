@@ -30,6 +30,19 @@ The build makes an unsigned development ZIP, `build/VMCompat-unsigned.zip`. The 
 
 The default dependency paths point to the standard macOS Steam installation. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and multiplayer test workflow.
 
+## Storm loader (experimental)
+
+Some multiplayer servers load Project Viewpoint through [Storm](https://github.com/guspuffygit/project-zomboid-storm) instead of ZombieBuddy, and refuse clients that have ZombieBuddy in the game. `tools/build_storm.py` builds VMCompat as a Storm java mod for that case:
+
+```sh
+export VMCOMPAT_STORM_JAR="$HOME/Zomboid/storm/core/stage/<id>/storm.jar"
+python3 tools/build_storm.py
+```
+
+It writes `build/VMCompatStorm-unsigned.zip`. Unpack it into `~/Zomboid/mods`, which Storm always loads, and start the game with the server's Storm launch options. ZombieBuddy's jar must not be in the game folder and the Workshop VMCompat stays disabled. `Zomboid/Lua/VMCompatStartup.txt` then reports `ACTIVE ... / Storm / ...`.
+
+The Storm entry point is `WorkshopBootstrap.startStorm()`, called from `src/storm/java/vmcompat/storm/StormMod.java` while Storm registers its mods. It takes the `Instrumentation` from Storm's bootstrap class, skips the `mods/default.txt` and ZombieBuddy checks, limits transformation to the classes Storm's game class loader defines, and does nothing in a Storm server process. Everything after that is the shared activation path. Not ported yet: the Lua status dialog, the performance HUD and the settings keys.
+
 ## License
 
 VMCompat code and original assets are available under the [MIT License](LICENSE). Project Zomboid, Project Viewpoint, ZombieBuddy, and their respective assets and libraries are separate dependencies with their own licenses.

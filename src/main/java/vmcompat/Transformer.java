@@ -20,6 +20,7 @@ public final class Transformer implements ClassFileTransformer{
     public static boolean handles(String name,String descriptor){return CALLS.containsKey(name+descriptor);}
     public byte[] transform(ClassLoader loader,String name,Class<?> redef,ProtectionDomain domain,byte[] bytes){
         if(name==null||!(OldPointCompat.TARGET.equals(name)||name.startsWith("zombie/")||name.startsWith("viewpoint/")||name.startsWith("org/lwjglx/")||name.startsWith("imgui/gl3/")||ImguiBootstrap.OWNED.equals(name)))return null;
+        if(!WorkshopBootstrap.inScope(loader))return null;
         try(ClassFileSupport.Scope scope=ClassFileSupport.resources(loader)){byte[] result=rewrite(name,bytes);StartupTransforms.applied(loader,name);if(java.util.Set.of("imgui/gl3/ImGuiImplGl3",ImguiBootstrap.OWNED,"viewpoint/platform/ImGuiFrame","zombie/core/rendering/RenderList$ArrayTexture").contains(name))Log.info("Startup compatibility transformed: "+name+" / redefine="+(redef!=null));return result;}catch(Throwable error){Log.failure("Cannot transform "+name,error);return new byte[]{0};}
     }
     public static byte[] rewrite(String name,byte[] bytes){if(OldPointCompat.TARGET.equals(name))return OldPointCompat.rewrite(bytes);
