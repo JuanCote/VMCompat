@@ -10,9 +10,16 @@ import java.util.*;
 import java.util.jar.JarFile;
 import java.util.regex.Pattern;
 
-/** Pinned ZombieBuddy 2.3.4 preload integration. No agents, files or approval policies are installed here. */
+/**
+ * Loader boundary. Two entry points share one activation path: the pinned ZombieBuddy 2.3.4 preload
+ * ({@link #start()}) and a Storm java mod ({@link #startStorm()}). No agents, files or approval policies are installed here.
+ */
 public final class WorkshopBootstrap {
     private static boolean attempted, active;
+    /** Storm only: the class loader that defines the live game classes. Null means every loader (ZombieBuddy). */
+    private static volatile ClassLoader scope;
+    /** Under Storm the application loader keeps inert pre-handoff copies of game classes; only Storm's copies are targets. */
+    static boolean inScope(ClassLoader loader){ClassLoader s=scope;return s==null||loader==s;}
     private static Instrumentation instrumentation;
     private static boolean audited;
     private static String state = "NOT_STARTED";
@@ -56,6 +63,14 @@ public final class WorkshopBootstrap {
         if(!expected.equals(actual)) throw new IllegalStateException(name+" "+actual+" is unsupported; requires "+expected);
     }
     static Path self() throws Exception { return Path.of(PreMain.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toRealPath(); }
+    /** Storm defines mod classes without a CodeSource, so the jar is taken from the class resource instead. */
+    static Path selfFromResource() throws Exception {
+        var url=WorkshopBootstrap.class.getResource("WorkshopBootstrap.class");
+        if(url==null||!"jar".equals(url.getProtocol()))throw new IllegalStateException("VMCompat is not loaded from a jar: "+url);
+        String spec=url.getPath();int end=spec.indexOf("!/");
+        if(end<0)throw new IllegalStateException("Unexpected jar location: "+url);
+        return Path.of(java.net.URI.create(spec.substring(0,end))).toRealPath();
+    }
     static String expectedViewpoint(String gameHash) {
         return switch(gameHash) {
             case "e1a69eb743ede60b213a0fe7f8b83d4fcab773036d256cc4543a336f3b058a33" -> "0.1.6.1";
@@ -100,7 +115,7 @@ public final class WorkshopBootstrap {
     static boolean namedTarget(Class<?> type) {
         // LambdaMetafactory adapters are hidden VM-generated classes, not classfile targets.
         // Their implementation bodies live in the named host class, which remains checked.
-        return !type.isHidden()&&!type.isArray()&&!type.isPrimitive()&&target(type.getName());
+        return !type.isHidden()&&!type.isArray()&&!type.isPrimitive()&&target(type.getName())&&inScope(type.getClassLoader());
     }
     static void validateJar(Path jar,ClassFile verifier) throws Exception {
         try(JarFile z=new JarFile(jar.toFile())) {
@@ -111,36 +126,68 @@ public final class WorkshopBootstrap {
             }
         }
     }
+    /** Checks that do not depend on the loader. */
+    static void platform() {
+        String conflict=conflict(ManagementFactory.getRuntimeMXBean().getInputArguments(),System.getProperties());
+        if(conflict!=null) throw new IllegalStateException(conflict);
+        version(System.getProperty("os.arch"),"aarch64","CPU architecture");
+        if(!System.getProperty("os.name").contains("Mac"))throw new IllegalStateException("Only macOS Apple Silicon is qualified");
+        if(Runtime.version().feature()!=25)throw new IllegalStateException("Requires the game's bundled Java 25");
+    }
     public static synchronized void start() {
         if(attempted) return; attempted=true;
-        Instrumentation inst=null; Transformer transformer=null; Class<?>[] loaded=null; boolean registered=false;
         try {
             Set<String> ids=selected(zomboid().resolve("mods/default.txt"));
             if(!ids.contains("VMCompat")){notice("DISABLED","VMCompat is disabled in the default mod selection; no transformations installed.");return;}
             if(!ids.containsAll(Set.of("Viewpoint","ZombieBuddy"))) throw new IllegalStateException("Enable Viewpoint and ZombieBuddy before VMCompat");
-            String conflict=conflict(ManagementFactory.getRuntimeMXBean().getInputArguments(),System.getProperties());
-            if(conflict!=null) throw new IllegalStateException(conflict);
-            version(System.getProperty("os.arch"),"aarch64","CPU architecture");
-            if(!System.getProperty("os.name").contains("Mac"))throw new IllegalStateException("Only macOS Apple Silicon is qualified");
-            if(Runtime.version().feature()!=25)throw new IllegalStateException("Requires the game's bundled Java 25");
+            platform();
             Class<?> loader=Class.forName("me.zed_0xff.zombie_buddy.Loader");
             Path buddy=Path.of(loader.getProtectionDomain().getCodeSource().getLocation().toURI());
             try(JarFile z=new JarFile(buddy.toFile())) { version(z.getManifest().getMainAttributes().getValue("Implementation-Version"),"2.3.4","ZombieBuddy"); }
             // 2.3.4 has no public getInstrumentation API. This pinned field is checked before touching targets.
-            var field=loader.getDeclaredField("g_instrumentation");field.setAccessible(true); inst=(Instrumentation)field.get(null);
+            var field=loader.getDeclaredField("g_instrumentation");field.setAccessible(true); Instrumentation inst=(Instrumentation)field.get(null);
             if(inst==null||!inst.isRetransformClassesSupported())throw new IllegalStateException("ZombieBuddy instrumentation/retransformation unavailable");
             boolean early=StackWalker.getInstance().walk(s->s.anyMatch(f->f.getClassName().equals(loader.getName())&&f.getMethodName().equals("try_call_main")));
             if(!early)throw new IllegalStateException("Not invoked by ZombieBuddy preload; refusing late activation");
+            activate(inst,self(),buddy,"ZombieBuddy");
+        } catch(Throwable error) { active=false; notice("INCOMPATIBLE",error.toString()); }
+    }
+    /**
+     * Storm entry point, called while Storm registers its java mods, before it starts the game.
+     * Storm owns mod selection (-Dstorm.workshop.mods or the server's list), so mods/default.txt is not consulted,
+     * and ZombieBuddy is neither required nor used. Early activation is proved by the ShaderUnit check in {@link #activate}.
+     */
+    public static synchronized void startStorm() {
+        if(attempted) return; attempted=true;
+        // Storm also loads java mods into servers, including the one a hosting client starts. A server renders nothing.
+        if(Boolean.getBoolean("storm.server")){state="DISABLED";System.err.println("[VMCompat Workshop] DISABLED: Storm server process; no transformations installed.");return;}
+        try {
+            platform();
+            ClassLoader game=WorkshopBootstrap.class.getClassLoader();
+            if(game==null||game==ClassLoader.getSystemClassLoader()||!game.getClass().getName().equals("io.pzstorm.storm.core.StormClassLoader"))
+                throw new IllegalStateException("Not loaded by Storm's class loader: "+game);
+            // Storm keeps the agent's Instrumentation in a public static field of its bootstrap class, on the application loader.
+            Class<?> bootstrap=Class.forName("io.pzstorm.storm.StormBootstrapper",false,ClassLoader.getSystemClassLoader());
+            Instrumentation inst=(Instrumentation)bootstrap.getField("instrumentation").get(null);
+            if(inst==null||!inst.isRetransformClassesSupported())throw new IllegalStateException("Storm instrumentation/retransformation unavailable");
+            scope=game;
+            activate(inst,selfFromResource(),null,"Storm");
+        } catch(Throwable error) { active=false; scope=null; notice("INCOMPATIBLE",error.toString()); }
+    }
+    /** Shared activation. {@code loaderJar} is preflighted too when the loader ships classes VMCompat rewrites (ZombieBuddy). */
+    private static void activate(Instrumentation inst,Path self,Path loaderJar,String via) {
+        Transformer transformer=null; Class<?>[] loaded=null; boolean registered=false;
+        try {
             Path game=Path.of(System.getProperty("java.home")).resolve("../../../../Java/projectzomboid.jar").normalize();
             // macOS game JRE is Contents/PlugIns/jre-aarch64/Contents/Home.
             String expectedVp=expectedViewpoint(Opaque.hash(Files.readAllBytes(game)));
-            Path vp=viewpoint(self(),expectedVp);
+            Path vp=viewpoint(self,expectedVp);
             if(!Options.OPAQUE.equals("opengl")||Options.PICK_EARLY||Options.FAR_BATCH)throw new IllegalStateException("Unqualified experimental configuration; restore the documented release options");
             // Viewpoint is not on the application classpath during approved VMCompat preload.
             // Read dependency class metadata without defining/executing its Java classes or bypassing its approval.
             try(var resources=new URLClassLoader(new java.net.URL[]{vp.toUri().toURL(),game.toUri().toURL()},WorkshopBootstrap.class.getClassLoader())) {
                 ClassFile verifier=ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(ClassHierarchyResolver.ofResourceParsing(resources)));
-                try(var scope=ClassFileSupport.resources(resources)){validateJar(game,verifier);validateJar(vp,verifier);validateJar(buddy,verifier);}
+                try(var scope=ClassFileSupport.resources(resources)){validateJar(game,verifier);validateJar(vp,verifier);if(loaderJar!=null)validateJar(loaderJar,verifier);}
             }
             loaded=Arrays.stream(inst.getAllLoadedClasses()).filter(WorkshopBootstrap::namedTarget).toArray(Class<?>[]::new);
             for(Class<?> c:loaded) {
@@ -152,7 +199,7 @@ public final class WorkshopBootstrap {
             instrumentation=inst;
             active=true;System.setProperty("vmcompat.active","workshop");
             Breakdown.warmup();Telemetry.start();NativeTrace.start();
-            notice("ACTIVE","VMCompat "+Agent.VERSION+" / OpenGL / pickEvery="+Options.PICK_EVERY+" / "+Options.PICKING);
+            notice("ACTIVE","VMCompat "+Agent.VERSION+" / "+via+" / OpenGL / pickEvery="+Options.PICK_EVERY+" / "+Options.PICKING+" / preloaded targets="+loaded.length);
         } catch(Throwable error) {
             active=false;
             if("workshop".equals(System.getProperty("vmcompat.active")))System.clearProperty("vmcompat.active");

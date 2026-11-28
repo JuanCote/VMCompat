@@ -18,7 +18,8 @@ public final class ReleaseLogs {
         Path current=Telemetry.recording();
         if(current!=null&&!capped)try(var files=Files.list(Log.ROOT)) {
             long size=0;for(Path p:files.filter(p->p.getFileName().toString().startsWith(current.getFileName().toString())).toList())size+=Files.size(p);
-            if(size>=32L*1024*1024||System.nanoTime()-START>120_000_000_000L) {capped=true;Log.info("Detailed recording capped (120 seconds / approximately 32 MiB). HUD continues; restart to record again.");}
+            long opened=Options.RECORD_FROM_VIEWPOINT?Telemetry.armedAt:START;
+            if(size>=32L*1024*1024||opened!=0&&System.nanoTime()-opened>120_000_000_000L) {capped=true;Log.info("Detailed recording capped (120 seconds / approximately 32 MiB). HUD continues; restart to record again.");}
         } catch(Exception e){System.err.println("[VMCompat] Recording quota: "+e);}
     }
     public static void trim() {

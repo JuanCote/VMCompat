@@ -1,0 +1,4 @@
+name=VMCompat (Storm loader, experimental)
+id=VMCompatStorm
+description=Experimental build of VMCompat that Storm loads as a java mod, for servers that run Project Viewpoint through Storm without ZombieBuddy. Unsigned local test build.
+modversion=1.0.20-storm
